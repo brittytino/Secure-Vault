@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Shield, Users, AlertTriangle, Plus, Trash2, Save, X } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
+import useWeb3Forms from '@web3forms/react';
 
 interface TrustedContact {
   id: string;
@@ -21,6 +22,24 @@ const EmergencyAccess: React.FC = () => {
   });
   const { addNotification } = useNotification();
 
+  const { submit } = useWeb3Forms({
+    access_key: 'c4606a75-a3cb-4e95-976c-e01f6345091f',
+    settings: {
+      from_name: 'Secure Vault',
+      subject: 'Emergency Access Request',
+    },
+    onSuccess: (message) => {
+      addNotification({
+        type: 'success',
+        message: 'Emergency access request sent successfully',
+        duration: 5000,
+      });
+    },
+    onError: (error) => {
+      console.error('Failed to send emergency access request:', error);
+    }
+  });
+
   const generateRecoveryKey = (): string => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let result = '';
@@ -35,7 +54,7 @@ const EmergencyAccess: React.FC = () => {
     return `${result.substring(0, 5)}-${result.substring(5, 10)}-${result.substring(10, 15)}-${result.substring(15, 20)}`;
   };
 
-  const handleAddContact = () => {
+  const handleAddContact = async () => {
     if (!newContact.name || !newContact.email) {
       addNotification({
         type: 'error',
@@ -55,15 +74,44 @@ const EmergencyAccess: React.FC = () => {
       dateAdded: Date.now(),
     };
 
-    setContacts([...contacts, contact]);
-    setNewContact({ name: '', email: '' });
-    setShowAddModal(false);
-    
-    addNotification({
-      type: 'success',
-      message: 'Trusted contact added successfully',
-      duration: 3000,
-    });
+    // Send emergency access request through Web3Forms
+    try {
+      await submit({
+        email: newContact.email,
+        message: `
+Secure Vault - Emergency Access Request
+
+Dear ${newContact.name},
+
+You have been added as a trusted contact for emergency access to a Secure Vault account.
+
+Your recovery key is: ${recoveryKey}
+
+This key can be used to request emergency access to the vault. Please keep this key secure and do not share it with anyone.
+
+If you did not expect this request, please ignore this message.
+
+Best regards,
+Secure Vault Team
+        `,
+      });
+
+      setContacts([...contacts, contact]);
+      setNewContact({ name: '', email: '' });
+      setShowAddModal(false);
+      
+      addNotification({
+        type: 'success',
+        message: 'Trusted contact added and notified successfully',
+        duration: 3000,
+      });
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        message: 'Failed to send emergency access request',
+        duration: 3000,
+      });
+    }
   };
 
   const handleDeleteContact = () => {
